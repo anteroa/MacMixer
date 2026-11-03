@@ -30,6 +30,7 @@ final class MixerModel: ObservableObject {
 
     private var timer: Timer?
     private var listeners: [PropertyListener] = []
+    private var outputChangeWorkItem: DispatchWorkItem?
 
     private let defaults = UserDefaults.standard
     private let volumesKey = "appVolumes"
@@ -47,7 +48,7 @@ final class MixerModel: ObservableObject {
         let system = AudioObjectID(kAudioObjectSystemObject)
         if let l = PropertyListener(objectID: system,
                                     address: CA.address(kAudioHardwarePropertyDefaultOutputDevice),
-                                    handler: { [weak self] in self?.outputDeviceChanged() }) {
+                                    handler: { [weak self] in self?.scheduleOutputDeviceChanged() }) {
             listeners.append(l)
         }
         if let l = PropertyListener(objectID: system,
@@ -171,6 +172,20 @@ final class MixerModel: ObservableObject {
     }
 
     // MARK: - Output device & master volume
+
+    /// Coalesces bursts of "default output device changed" notifications into one
+    /// rebuild. A Bluetooth headset switching profiles (e.g. opening the mic for a
+    /// call) fires this property several times in quick succession as macOS
+    /// renegotiates the route; tearing down and recreating every tap on each of
+    /// those intermediate notifications — while another tap's Core Audio IO thread
+    /// may still be mid-callback — is what crashed MacMixer. Waiting for the route
+    /// to settle before rebuilding avoids that pile-up.
+    private func scheduleOutputDeviceChanged() {
+        outputChangeWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.outputDeviceChanged() }
+        outputChangeWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: item)
+    }
 
     private func outputDeviceChanged() {
         updateOutputDevice()

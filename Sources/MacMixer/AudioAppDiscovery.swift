@@ -19,7 +19,35 @@ struct AudioApp: Identifiable, Equatable {
 }
 
 enum AudioAppDiscovery {
-    /// Every process Core Audio knows about, grouped by the app that owns it.
+    /// Browsers run every site in its own helper process. For these, each helper
+    /// that's actually making sound gets its own row instead of being collapsed
+    /// into one "Chrome" entry — so playing music in one tab and a video in
+    /// another gives you two independent sliders. Core Audio only reports a PID
+    /// and bundle ID for each process, not the page it's showing, so rows from
+    /// the same browser are only numbered ("Google Chrome (2)"), not named after
+    /// the site. Single-purpose multi-process apps (Spotify, Discord, Slack) are
+    /// deliberately not in this set: their helpers are all still "one app" to the
+    /// user, so they stay grouped under one row like before.
+    private static let multiSourceBrowserBundleIDs: Set<String> = [
+        "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary",
+        "com.apple.Safari", "com.apple.SafariTechnologyPreview",
+        "org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly",
+        "com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev",
+        "com.brave.Browser", "com.brave.Browser.beta", "com.brave.Browser.nightly",
+        "com.operasoftware.Opera", "com.vivaldi.Vivaldi",
+        "company.thebrowser.Browser", // Arc
+    ]
+
+    /// Processes with no regular owning app (system daemons) whose raw name
+    /// isn't something to show someone.
+    private static let friendlyNames: [String: String] = [
+        "systemsoundserverd": "System Sounds",
+    ]
+
+    private static let fallbackIcon = NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil)
+
+    /// Every process Core Audio knows about, grouped by the app that owns it
+    /// (except browser tabs/sites — see `multiSourceBrowserBundleIDs`).
     static func scan() -> [AudioApp] {
         let ownPID = ProcessInfo.processInfo.processIdentifier
         let processes = CA.objectIDs(AudioObjectID(kAudioObjectSystemObject),
@@ -35,22 +63,58 @@ enum AudioAppDiscovery {
             let owner = owningApp(for: pid, processBundleID: processBundleID)
             if owner?.processIdentifier == ownPID { continue }
 
-            let key = owner?.bundleIdentifier ?? processBundleID ?? "pid-\(pid)"
-            let name = owner?.localizedName
-                ?? processBundleID?.split(separator: ".").last.map(String.init)
-                ?? processName(pid)
-                ?? "Process \(pid)"
+            let isBrowserHelper = owner?.processIdentifier != pid
+                && multiSourceBrowserBundleIDs.contains(owner?.bundleIdentifier ?? "")
+
+            let key = isBrowserHelper ? "pid-\(pid)" : (owner?.bundleIdentifier ?? processBundleID ?? "pid-\(pid)")
+            let name = resolveName(owner: owner, processBundleID: processBundleID, pid: pid)
+            let icon = owner?.icon ?? fallbackIcon
 
             if var existing = groups[key] {
                 existing.processObjectIDs.insert(objectID)
                 existing.isPlaying = existing.isPlaying || running
                 groups[key] = existing
             } else {
-                groups[key] = AudioApp(id: key, name: name, icon: owner?.icon,
+                groups[key] = AudioApp(id: key, name: name, icon: icon,
                                        processObjectIDs: [objectID], isPlaying: running)
             }
         }
-        return Array(groups.values)
+        return disambiguate(Array(groups.values))
+    }
+
+    /// When a browser contributes more than one row, number them so they're
+    /// distinguishable — stably, by PID, so a row doesn't relabel itself between
+    /// one-second refreshes.
+    private static func disambiguate(_ apps: [AudioApp]) -> [AudioApp] {
+        var byName: [String: [AudioApp]] = [:]
+        for app in apps { byName[app.name, default: []].append(app) }
+
+        var result: [AudioApp] = []
+        for (name, group) in byName {
+            guard group.count > 1 else {
+                result.append(contentsOf: group)
+                continue
+            }
+            let sorted = group.sorted { pidFromKey($0.id) < pidFromKey($1.id) }
+            for (index, var app) in sorted.enumerated() {
+                app.name = "\(name) (\(index + 1))"
+                result.append(app)
+            }
+        }
+        return result
+    }
+
+    private static func resolveName(owner: NSRunningApplication?, processBundleID: String?, pid: pid_t) -> String {
+        if let processBundleID, let friendly = friendlyNames[processBundleID] { return friendly }
+        if let name = owner?.localizedName { return name }
+        if let last = processBundleID?.split(separator: ".").last { return String(last) }
+        if let name = processName(pid) { return name }
+        return "Process \(pid)"
+    }
+
+    private static func pidFromKey(_ key: String) -> Int {
+        guard key.hasPrefix("pid-"), let value = Int(key.dropFirst(4)) else { return .max }
+        return value
     }
 
     // MARK: - Finding the app a helper process belongs to
