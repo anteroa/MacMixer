@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>MacMixer routes each app's audio through itself so it can change that app's volume. Audio is never recorded, saved, or sent anywhere.</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>Only if you turn on "Show browser tab titles": MacMixer reads which browser tab is currently playing audio and its title, so it can label that tab's slider. Nothing is read, recorded, or sent anywhere.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>MIT License. Copyright © 2026 Antero Avalos.</string>
 </dict>

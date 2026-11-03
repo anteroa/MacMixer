@@ -48,11 +48,12 @@ enum AudioAppDiscovery {
 
     /// Every process Core Audio knows about, grouped by the app that owns it
     /// (except browser tabs/sites — see `multiSourceBrowserBundleIDs`).
-    static func scan() -> [AudioApp] {
+    static func scan(labelBrowserTabs: Bool) -> [AudioApp] {
         let ownPID = ProcessInfo.processInfo.processIdentifier
         let processes = CA.objectIDs(AudioObjectID(kAudioObjectSystemObject),
                                      kAudioHardwarePropertyProcessObjectList)
         var groups: [String: AudioApp] = [:]
+        var browserOwnerPIDs: [String: pid_t] = [:]
 
         for objectID in processes {
             guard let pid = CA.get(objectID, kAudioProcessPropertyPID, initial: pid_t(-1)),
@@ -69,6 +70,7 @@ enum AudioAppDiscovery {
             let key = isBrowserHelper ? "pid-\(pid)" : (owner?.bundleIdentifier ?? processBundleID ?? "pid-\(pid)")
             let name = resolveName(owner: owner, processBundleID: processBundleID, pid: pid)
             let icon = owner?.icon ?? fallbackIcon
+            if isBrowserHelper, let ownerPID = owner?.processIdentifier { browserOwnerPIDs[key] = ownerPID }
 
             if var existing = groups[key] {
                 existing.processObjectIDs.insert(objectID)
@@ -79,7 +81,44 @@ enum AudioAppDiscovery {
                                        processObjectIDs: [objectID], isPlaying: running)
             }
         }
-        return disambiguate(Array(groups.values))
+        let disambiguated = disambiguate(Array(groups.values))
+        guard labelBrowserTabs else { return disambiguated }
+        return labelFromOpenTabs(disambiguated, ownerPIDs: browserOwnerPIDs)
+    }
+
+    /// Best-effort: replace a playing browser row's generic "Chrome (2)" name
+    /// with the actual tab title, read live from the browser's Accessibility
+    /// tree (see BrowserTabs). Core Audio and the Accessibility tree each
+    /// enumerate processes/tabs in their own order with no shared identifier
+    /// between the two, so when several tabs are audible at once this can
+    /// pair the wrong title with the wrong row — it only ever affects the text
+    /// shown, never which process that row's slider actually controls.
+    private static func labelFromOpenTabs(_ apps: [AudioApp], ownerPIDs: [String: pid_t]) -> [AudioApp] {
+        let playing = apps.filter { $0.isPlaying && ownerPIDs[$0.id] != nil }
+        guard !playing.isEmpty else { return apps }
+        BrowserTabs.requestAccessIfNeeded()
+
+        var byOwnerPID: [pid_t: [AudioApp]] = [:]
+        for app in playing {
+            guard let ownerPID = ownerPIDs[app.id] else { continue }
+            byOwnerPID[ownerPID, default: []].append(app)
+        }
+
+        var titleByID: [String: String] = [:]
+        for (ownerPID, rows) in byOwnerPID {
+            let titles = BrowserTabs.audiblePlayingTitles(ownerPID: ownerPID)
+            guard !titles.isEmpty else { continue }
+            let rows = rows.sorted { pidFromKey($0.id) < pidFromKey($1.id) }
+            for (row, title) in zip(rows, titles) { titleByID[row.id] = title }
+        }
+        guard !titleByID.isEmpty else { return apps }
+
+        return apps.map { app in
+            guard let title = titleByID[app.id] else { return app }
+            var app = app
+            app.name = title
+            return app
+        }
     }
 
     /// When a browser contributes more than one row, number them so they're

@@ -20,6 +20,19 @@ final class MixerModel: ObservableObject {
         didSet { applyLaunchAtLogin() }
     }
 
+    /// Off by default: showing real tab titles needs the Accessibility
+    /// permission (it can read anything on screen), which is a much bigger ask
+    /// than the audio-only access MacMixer otherwise needs. Only request it,
+    /// and only read tab titles, once someone explicitly opts in.
+    @Published var showTabTitles: Bool {
+        didSet {
+            defaults.set(showTabTitles, forKey: showTabTitlesKey)
+            if showTabTitles { BrowserTabs.requestAccessIfNeeded() }
+            refresh()
+        }
+    }
+    private let showTabTitlesKey = "showTabTitles"
+
     private var taps: [String: AppTap] = [:]
     /// Apps that have made sound since they launched. Like Windows, an app keeps its
     /// slider while it's open, even when paused.
@@ -37,6 +50,7 @@ final class MixerModel: ObservableObject {
     private let mutedKey = "mutedApps"
 
     init() {
+        showTabTitles = defaults.bool(forKey: showTabTitlesKey)
         if let saved = defaults.dictionary(forKey: volumesKey) as? [String: Double] {
             volumes = saved.mapValues { Float($0) }
         }
@@ -155,7 +169,7 @@ final class MixerModel: ObservableObject {
     // MARK: - Discovering apps
 
     func refresh() {
-        let scanned = AudioAppDiscovery.scan()
+        let scanned = AudioAppDiscovery.scan(labelBrowserTabs: showTabTitles)
         for app in scanned where app.isPlaying && !isEphemeral(app.id) { seenPlaying.insert(app.id) }
         let aliveIDs = Set(scanned.map(\.id))
         seenPlaying.formIntersection(aliveIDs)

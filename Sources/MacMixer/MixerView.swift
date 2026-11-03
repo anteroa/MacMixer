@@ -87,14 +87,24 @@ struct MixerView: View {
     }
 
     private var footer: some View {
-        HStack {
-            Toggle("Launch at login", isOn: $model.launchAtLogin)
-                .toggleStyle(.checkbox)
-                .font(.caption)
-            Spacer()
-            Button("Quit") { NSApp.terminate(nil) }
-                .controlSize(.small)
-                .keyboardShortcut("q")
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $model.showTabTitles) {
+                Text("Show browser tab titles")
+            }
+            .toggleStyle(.checkbox)
+            .font(.caption)
+            .help("Needs the Accessibility permission (it can read what's on screen), "
+                + "so MacMixer only asks for it once you turn this on.")
+
+            HStack {
+                Toggle("Launch at login", isOn: $model.launchAtLogin)
+                    .toggleStyle(.checkbox)
+                    .font(.caption)
+                Spacer()
+                Button("Quit") { NSApp.terminate(nil) }
+                    .controlSize(.small)
+                    .keyboardShortcut("q")
+            }
         }
     }
 }
