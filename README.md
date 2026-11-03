@@ -8,11 +8,10 @@ making sound (Spotify, your browser, Discord, a game), plus a master volume for 
 - Apps left at 100% aren't touched at all. Their audio goes straight to your speakers as usual.
 - Volumes are remembered per app, across launches.
 - No network access, no telemetry, no audio is ever recorded or saved.
-- Playing two different things in two browser tabs (Chrome, Safari, Firefox, Edge, Brave,
-  Opera, Vivaldi, Arc)? When the browser happens to run them as separate OS processes,
-  each gets its own slider instead of one shared "Chrome" slider for everything — see
-  [Browser tabs](#browser-tabs) below for what that depends on, and the optional
-  **Show browser tab titles** toggle that labels them with the real tab name.
+- Playing two different things in two browser tabs? In practice they usually land on
+  one shared "Chrome" slider, since that's how Chrome's own audio pipeline works — see
+  [Browser tabs](#browser-tabs) below for why, and the optional **Show browser tab
+  titles** toggle that at least labels a shared slider with every tab feeding it.
 
 Requires **macOS 14.2 (Sonoma) or later**.
 
@@ -39,17 +38,16 @@ optional** — see below.
 ### Browser tabs
 
 MacMixer separates browser tabs by OS process, not by tab — because that's the most
-specific thing Core Audio actually exposes. Whether two tabs end up as two sliders or
-one shared slider depends entirely on whether the browser happens to run them as
-separate processes, which MacMixer has no control over and can't force:
-
-- Often, each tab/site does get its own process, and its own slider.
-- But browsers also centralize audio through one shared internal process in common
-  cases (e.g. Chrome's "Audio Service" utility process) — when that happens, every tab
-  routed through it shows up as **one slider that controls all of them together**,
-  because by the time the audio reaches the OS, it's already been mixed into a single
-  stream. No app — including this one, including a browser extension — can un-mix audio
-  that's already been combined before it leaves the browser.
+specific thing Core Audio actually exposes, and it has no visibility into tabs at all.
+In practice, that usually means **one shared slider for every tab**, not one each:
+Chrome (and likely other Chromium browsers) routes ordinary tab audio through one
+shared internal process (its "Audio Service" utility process) regardless of how many
+tabs are playing or whether they're in the same window or separate ones — confirmed by
+testing both. By the time that audio reaches the OS, it's already been mixed into a
+single stream, and nothing outside the browser — not this app, not a browser extension
+— can un-mix audio that's already been combined before it leaves the browser. A tab
+only gets its own, independently-controllable slider on the rarer occasions a browser
+happens to give it a genuinely separate OS process.
 
 Turn on **Show browser tab titles** in the popover and MacMixer labels each slider with
 the real tab title(s) instead of a generic "Google Chrome (2)", read live from the
