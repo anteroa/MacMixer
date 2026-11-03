@@ -1,0 +1,28 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Build universal app
+        run: ARCHS="arm64 x86_64" ./scripts/build-app.sh
+
+      - name: Zip
+        run: ditto -c -k --keepParent build/MacMixer.app build/MacMixer.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MacMixer
+          path: build/MacMixer.zip

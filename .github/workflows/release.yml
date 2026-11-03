@@ -1,0 +1,40 @@
+name: Release
+
+# Push a tag like v0.1.0 to publish a downloadable release:
+#   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build universal app
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" ARCHS="arm64 x86_64" ./scripts/build-app.sh
+
+      - name: Package
+        id: pkg
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ZIP="build/MacMixer-${VERSION}.zip"
+          ditto -c -k --keepParent build/MacMixer.app "$ZIP"
+          shasum -a 256 "$ZIP" | tee "$ZIP.sha256"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "${{ steps.pkg.outputs.zip }}" "${{ steps.pkg.outputs.zip }}.sha256" \
+            --title "MacMixer $GITHUB_REF_NAME" \
+            --generate-notes
