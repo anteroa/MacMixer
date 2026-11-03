@@ -74,7 +74,33 @@ make run        # build and launch
 make install    # build and copy to /Applications
 ```
 
-Local builds are signed ad-hoc, so macOS may ask for the audio permission again after each rebuild.
+By default, local builds are signed ad-hoc, which has no stable identity — every
+rebuild looks like a different app to macOS, so it'll ask you to re-grant the System
+Audio Recording (and Accessibility, if you use tab titles) permission after every
+single build. If you're doing more than a one-off build, it's worth setting up a
+self-signed signing identity instead, which stays the same across rebuilds so those
+permissions actually stick:
+
+```sh
+# Once: generate a self-signed code-signing certificate and import it into your keychain.
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 7300 -nodes \
+  -subj "/CN=MacMixer Self-Signed" \
+  -addext "basicConstraints=critical,CA:false" -addext "keyUsage=critical,digitalSignature" \
+  -addext "extendedKeyUsage=critical,codeSigning"
+openssl pkcs12 -export -out cert.p12 -inkey key.pem -in cert.pem -name "MacMixer Self-Signed"
+security import cert.p12 -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign
+rm key.pem cert.pem cert.p12   # the keychain now holds the only copy you need
+
+# Every build after that:
+export SIGN_IDENTITY="MacMixer Self-Signed"
+make run
+```
+
+This still isn't a real Apple Developer ID — Gatekeeper still shows "Open Anyway" on
+first launch either way — it only fixes permissions resetting on every rebuild. The
+published releases on GitHub are signed this same way (same certificate, kept as a
+repository secret, imported fresh in CI for each release — see `.github/workflows/`),
+so permissions persist across *released* updates too, not just local ones.
 
 ## How it works
 

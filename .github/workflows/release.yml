@@ -17,6 +17,31 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Ad-hoc signing (the default) gives every build a different identity, so
+      # macOS forgets permissions users already granted (System Audio Recording,
+      # Accessibility) on every single update. Signing with a stable self-signed
+      # certificate instead keeps that identity constant across releases, so
+      # those permissions survive an update. It does NOT replace a real Apple
+      # Developer ID: Gatekeeper still shows the "unidentified developer" /
+      # "Open Anyway" step either way — see scripts/build-app.sh and the README.
+      - name: Import signing certificate
+        if: ${{ secrets.MACMIXER_SIGNING_CERT_P12 != '' }}
+        env:
+          CERT_P12_BASE64: ${{ secrets.MACMIXER_SIGNING_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACMIXER_SIGNING_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/macmixer-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          echo "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm -f "$RUNNER_TEMP/cert.p12"
+          echo "SIGN_IDENTITY=MacMixer Self-Signed" >> "$GITHUB_ENV"
+
       - name: Build universal app
         run: |
           VERSION="${GITHUB_REF_NAME#v}" ARCHS="arm64 x86_64" ./scripts/build-app.sh

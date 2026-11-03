@@ -16,6 +16,27 @@ jobs:
       - name: Toolchain
         run: swift --version
 
+      # See release.yml for why: keeps a stable signing identity across builds
+      # so permissions survive updates. Unavailable (and skipped) on PRs from
+      # forks, which don't get repo secrets — those builds stay ad-hoc signed.
+      - name: Import signing certificate
+        if: ${{ secrets.MACMIXER_SIGNING_CERT_P12 != '' }}
+        env:
+          CERT_P12_BASE64: ${{ secrets.MACMIXER_SIGNING_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACMIXER_SIGNING_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/macmixer-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          echo "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm -f "$RUNNER_TEMP/cert.p12"
+          echo "SIGN_IDENTITY=MacMixer Self-Signed" >> "$GITHUB_ENV"
+
       - name: Build universal app
         run: ARCHS="arm64 x86_64" ./scripts/build-app.sh
 
