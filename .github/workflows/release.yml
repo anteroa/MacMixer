@@ -12,6 +12,9 @@ permissions:
 jobs:
   release:
     runs-on: macos-15
+    env:
+      CERT_P12_BASE64: ${{ secrets.MACMIXER_SIGNING_CERT_P12 }}
+      CERT_PASSWORD: ${{ secrets.MACMIXER_SIGNING_CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,10 +28,7 @@ jobs:
       # Developer ID: Gatekeeper still shows the "unidentified developer" /
       # "Open Anyway" step either way — see scripts/build-app.sh and the README.
       - name: Import signing certificate
-        if: ${{ secrets.MACMIXER_SIGNING_CERT_P12 != '' }}
-        env:
-          CERT_P12_BASE64: ${{ secrets.MACMIXER_SIGNING_CERT_P12 }}
-          CERT_PASSWORD: ${{ secrets.MACMIXER_SIGNING_CERT_PASSWORD }}
+        if: ${{ env.CERT_P12_BASE64 != '' }}
         run: |
           KEYCHAIN_PATH="$RUNNER_TEMP/macmixer-signing.keychain-db"
           KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
@@ -37,7 +37,8 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign
-          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
+          EXISTING_KEYCHAINS=$(security list-keychains -d user | sed 's/"//g')
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $EXISTING_KEYCHAINS
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           rm -f "$RUNNER_TEMP/cert.p12"
           echo "SIGN_IDENTITY=MacMixer Self-Signed" >> "$GITHUB_ENV"
