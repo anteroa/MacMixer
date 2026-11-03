@@ -81,8 +81,12 @@ struct MixerView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Open Privacy & Security", action: model.openPrivacySettings)
-                .controlSize(.small)
+            HStack {
+                Button("Open Privacy & Security", action: model.openPrivacySettings)
+                Button("Restore Normal Audio", action: model.restoreNormalAudio)
+                    .help("Resets the affected apps to 100% volume, unmuted — gets your sound back without granting the permission.")
+            }
+            .controlSize(.small)
         }
     }
 

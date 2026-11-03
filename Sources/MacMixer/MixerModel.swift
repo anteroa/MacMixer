@@ -110,6 +110,21 @@ final class MixerModel: ObservableObject {
         updateTap(for: id, allowRemoval: true)
     }
 
+    /// Resets every app currently showing a permission/tap error back to its
+    /// normal, untouched volume (100%, unmuted) — a recovery path for anyone
+    /// who denied System Audio Recording and is now stuck with apps MacMixer
+    /// can no longer control, without having to grant the permission just to
+    /// get their sound back.
+    func restoreNormalAudio() {
+        for id in errors.keys {
+            volumes.removeValue(forKey: id)
+            muted.remove(id)
+            updateTap(for: id, allowRemoval: true)
+        }
+        errors.removeAll()
+        save()
+    }
+
     /// Slider position → loudness. Squaring makes the slider feel even across its range
     /// (50% sounds about half as loud instead of barely quieter).
     private func gain(for id: String) -> Float32 {
