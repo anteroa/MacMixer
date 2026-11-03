@@ -8,6 +8,11 @@ making sound (Spotify, your browser, Discord, a game), plus a master volume for 
 - Apps left at 100% aren't touched at all. Their audio goes straight to your speakers as usual.
 - Volumes are remembered per app, across launches.
 - No network access, no telemetry, no audio is ever recorded or saved.
+- Playing two different things in two browser tabs (Chrome, Safari, Firefox, Edge, Brave,
+  Opera, Vivaldi, Arc)? Each tab that's making sound gets its own slider instead of one
+  shared "Chrome" slider for everything. Turn on **Show browser tab titles** in the popover
+  to label them with the actual tab name instead of a generic number — see
+  [Browser tab titles](#browser-tab-titles) below; it's entirely optional.
 
 Requires **macOS 14.2 (Sonoma) or later**.
 
@@ -27,6 +32,28 @@ Requires **macOS 14.2 (Sonoma) or later**.
 > If you deny the permission, apps you've adjusted may go quiet. Drag their slider back to 100%,
 > or allow MacMixer under **System Settings → Privacy & Security → Screen & System Audio Recording**
 > and reopen it.
+
+That's everything MacMixer needs to work. One more permission is available but **entirely
+optional** — see below.
+
+### Browser tab titles
+
+By default, two browser tabs playing different things each get their own slider, but
+they're just labeled "Google Chrome", "Google Chrome (2)", and so on — MacMixer can tell
+*that* two different processes are making sound, but not *what's playing in each one*.
+That second part only exists inside the browser itself.
+
+Turn on **Show browser tab titles** in the popover and MacMixer will label each slider
+with the real tab title (e.g. the video's title instead of "Google Chrome (2)"), read
+live from the browser's accessibility tree — the same mechanism VoiceOver uses, not
+a network request and not a browser extension. Nothing is recorded, saved, or sent
+anywhere; it's only ever read to put a label next to a slider.
+
+This needs the **Accessibility** permission, which is a much bigger ask than the
+audio-only access the rest of the app needs — it can technically read anything on
+screen — so it's off by default, and macOS only asks you for it the moment you turn
+the toggle on. Leave it off and MacMixer works exactly the same, just with generic
+numbered labels for browser tabs instead of real titles.
 
 ## Build from source
 
@@ -59,7 +86,9 @@ Sources/MacMixer/
   MacMixerApp.swift        menu bar app entry point
   MixerView.swift          the SwiftUI popover
   MixerModel.swift         state, saved volumes, output device, master volume
-  AudioAppDiscovery.swift  finds audio processes and groups helpers under their app
+  AudioAppDiscovery.swift  finds audio processes; groups helpers under their app,
+                           except browser tabs/sites, which get their own row
+  BrowserTabs.swift        optional: reads live tab titles via Accessibility
   AppTap.swift             process tap + aggregate device + real-time gain
   CoreAudioHelpers.swift   small wrappers over the Core Audio C API
 ```
