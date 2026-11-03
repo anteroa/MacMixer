@@ -87,12 +87,15 @@ enum AudioAppDiscovery {
     }
 
     /// Best-effort: replace a playing browser row's generic "Chrome (2)" name
-    /// with the actual tab title, read live from the browser's Accessibility
-    /// tree (see BrowserTabs). Core Audio and the Accessibility tree each
-    /// enumerate processes/tabs in their own order with no shared identifier
-    /// between the two, so when several tabs are audible at once this can
-    /// pair the wrong title with the wrong row — it only ever affects the text
-    /// shown, never which process that row's slider actually controls.
+    /// with the actual tab title(s), read live from the browser's
+    /// Accessibility tree (see BrowserTabs). Core Audio only separates tabs
+    /// into different rows when they happen to land in different OS
+    /// processes — several tabs very often share one browser-wide audio
+    /// process (e.g. Chrome's Audio Service), in which case Core Audio only
+    /// ever sees one combined stream and there is only one row to label, no
+    /// matter how many tabs are contributing to it. When that happens, every
+    /// title for that row is shown, joined together, rather than silently
+    /// picking one and hiding that the slider is actually shared.
     private static func labelFromOpenTabs(_ apps: [AudioApp], ownerPIDs: [String: pid_t]) -> [AudioApp] {
         let playing = apps.filter { $0.isPlaying && ownerPIDs[$0.id] != nil }
         guard !playing.isEmpty else { return apps }
@@ -109,7 +112,9 @@ enum AudioAppDiscovery {
             let titles = BrowserTabs.audiblePlayingTitles(ownerPID: ownerPID)
             guard !titles.isEmpty else { continue }
             let rows = rows.sorted { pidFromKey($0.id) < pidFromKey($1.id) }
-            for (row, title) in zip(rows, titles) { titleByID[row.id] = title }
+            for (row, group) in zip(rows, distribute(titles, into: rows.count)) where !group.isEmpty {
+                titleByID[row.id] = group.joined(separator: " + ")
+            }
         }
         guard !titleByID.isEmpty else { return apps }
 
@@ -149,6 +154,16 @@ enum AudioAppDiscovery {
         if let last = processBundleID?.split(separator: ".").last { return String(last) }
         if let name = processName(pid) { return name }
         return "Process \(pid)"
+    }
+
+    /// Spreads `items` across `groups` buckets as evenly as possible (round-robin),
+    /// so when more tabs are audible than there are rows to label, every title
+    /// still ends up attached to some row instead of silently dropped.
+    private static func distribute<T>(_ items: [T], into groups: Int) -> [[T]] {
+        guard groups > 0 else { return [] }
+        var result = Array(repeating: [T](), count: groups)
+        for (index, item) in items.enumerated() { result[index % groups].append(item) }
+        return result
     }
 
     private static func pidFromKey(_ key: String) -> Int {

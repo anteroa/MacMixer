@@ -9,10 +9,10 @@ making sound (Spotify, your browser, Discord, a game), plus a master volume for 
 - Volumes are remembered per app, across launches.
 - No network access, no telemetry, no audio is ever recorded or saved.
 - Playing two different things in two browser tabs (Chrome, Safari, Firefox, Edge, Brave,
-  Opera, Vivaldi, Arc)? Each tab that's making sound gets its own slider instead of one
-  shared "Chrome" slider for everything. Turn on **Show browser tab titles** in the popover
-  to label them with the actual tab name instead of a generic number — see
-  [Browser tab titles](#browser-tab-titles) below; it's entirely optional.
+  Opera, Vivaldi, Arc)? When the browser happens to run them as separate OS processes,
+  each gets its own slider instead of one shared "Chrome" slider for everything — see
+  [Browser tabs](#browser-tabs) below for what that depends on, and the optional
+  **Show browser tab titles** toggle that labels them with the real tab name.
 
 Requires **macOS 14.2 (Sonoma) or later**.
 
@@ -36,18 +36,28 @@ Requires **macOS 14.2 (Sonoma) or later**.
 That's everything MacMixer needs to work. One more permission is available but **entirely
 optional** — see below.
 
-### Browser tab titles
+### Browser tabs
 
-By default, two browser tabs playing different things each get their own slider, but
-they're just labeled "Google Chrome", "Google Chrome (2)", and so on — MacMixer can tell
-*that* two different processes are making sound, but not *what's playing in each one*.
-That second part only exists inside the browser itself.
+MacMixer separates browser tabs by OS process, not by tab — because that's the most
+specific thing Core Audio actually exposes. Whether two tabs end up as two sliders or
+one shared slider depends entirely on whether the browser happens to run them as
+separate processes, which MacMixer has no control over and can't force:
 
-Turn on **Show browser tab titles** in the popover and MacMixer will label each slider
-with the real tab title (e.g. the video's title instead of "Google Chrome (2)"), read
-live from the browser's accessibility tree — the same mechanism VoiceOver uses, not
-a network request and not a browser extension. Nothing is recorded, saved, or sent
-anywhere; it's only ever read to put a label next to a slider.
+- Often, each tab/site does get its own process, and its own slider.
+- But browsers also centralize audio through one shared internal process in common
+  cases (e.g. Chrome's "Audio Service" utility process) — when that happens, every tab
+  routed through it shows up as **one slider that controls all of them together**,
+  because by the time the audio reaches the OS, it's already been mixed into a single
+  stream. No app — including this one, including a browser extension — can un-mix audio
+  that's already been combined before it leaves the browser.
+
+Turn on **Show browser tab titles** in the popover and MacMixer labels each slider with
+the real tab title(s) instead of a generic "Google Chrome (2)", read live from the
+browser's accessibility tree — the same mechanism VoiceOver uses, not a network request
+and not a browser extension. When a slider is shared by more than one tab, every title
+is shown, joined together, so you can tell it's shared rather than see one tab's name
+silently stand in for several. Nothing is recorded, saved, or sent anywhere; it's only
+ever read to label a slider.
 
 This needs the **Accessibility** permission, which is a much bigger ask than the
 audio-only access the rest of the app needs — it can technically read anything on
