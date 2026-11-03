@@ -139,21 +139,42 @@ final class MixerModel: ObservableObject {
         }
     }
 
+    /// Browser tabs/sites (see AudioAppDiscovery) are keyed by raw PID, not a
+    /// stable bundle ID: the same key can belong to a totally different site
+    /// next time that helper process is reused (e.g. Chrome's shared Audio
+    /// Service), so unlike a real app, it's never safe to treat "has played
+    /// before" as "same source, just paused" — or to remember a volume for it
+    /// across process lifetimes.
+    private func isEphemeral(_ id: String) -> Bool { id.hasPrefix("pid-") }
+
     private func save() {
-        defaults.set(volumes.mapValues { Double($0) }, forKey: volumesKey)
-        defaults.set(Array(muted), forKey: mutedKey)
+        defaults.set(volumes.filter { !isEphemeral($0.key) }.mapValues { Double($0) }, forKey: volumesKey)
+        defaults.set(Array(muted.filter { !isEphemeral($0) }), forKey: mutedKey)
     }
 
     // MARK: - Discovering apps
 
     func refresh() {
         let scanned = AudioAppDiscovery.scan()
-        for app in scanned where app.isPlaying { seenPlaying.insert(app.id) }
+        for app in scanned where app.isPlaying && !isEphemeral(app.id) { seenPlaying.insert(app.id) }
         let aliveIDs = Set(scanned.map(\.id))
         seenPlaying.formIntersection(aliveIDs)
 
+        // A dead ephemeral row's custom volume/mute would otherwise sit around
+        // and get inherited by whatever unrelated source reuses that PID next.
+        let deadEphemeral = Set(volumes.keys).union(muted).filter { isEphemeral($0) && !aliveIDs.contains($0) }
+        if !deadEphemeral.isEmpty {
+            for id in deadEphemeral {
+                volumes.removeValue(forKey: id)
+                muted.remove(id)
+            }
+            save()
+        }
+
         let visible = scanned
-            .filter { seenPlaying.contains($0.id) || needsTap($0.id) }
+            .filter { app in
+                isEphemeral(app.id) ? (app.isPlaying || needsTap(app.id)) : (seenPlaying.contains(app.id) || needsTap(app.id))
+            }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         if visible != apps { apps = visible }
 
