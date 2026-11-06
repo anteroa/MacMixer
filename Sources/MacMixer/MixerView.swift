@@ -77,10 +77,12 @@ struct MixerView: View {
             Label("Some apps couldn't be controlled.", systemImage: "exclamationmark.triangle.fill")
                 .font(.caption.bold())
                 .foregroundStyle(.orange)
-            Text("MacMixer needs the System Audio Recording permission. Allow it in Privacy & Security, then quit and reopen MacMixer.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            ForEach(Array(Set(model.errors.values)).sorted(), id: \.self) { message in
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Button("Open Privacy & Security", action: model.openPrivacySettings)
                 Button("Restore Normal Audio", action: model.restoreNormalAudio)

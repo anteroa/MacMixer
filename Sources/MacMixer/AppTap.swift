@@ -7,6 +7,22 @@ import Foundation
 struct GainState {
     var target: Float32
     var current: Float32
+    var sawSignal: Bool = false
+    var didRun: Bool = false
+}
+
+enum AudioCapturePermission {
+    /// True only when macOS has explicitly denied System Audio Recording. Without it,
+    /// a process tap still mutes the app but its aggregate device never runs, so
+    /// tapping would just silence the app. Uses the TCC SPI (as Apple's AudioCap
+    /// sample does); if that's unavailable, MixerModel's dead-tap check is the fallback.
+    static var isDenied: Bool {
+        typealias Preflight = @convention(c) (CFString, CFDictionary?) -> Int
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC", RTLD_NOW),
+              let symbol = dlsym(handle, "TCCAccessPreflight") else { return false }
+        let preflight = unsafeBitCast(symbol, to: Preflight.self)
+        return preflight("kTCCServiceAudioCapture" as CFString, nil) == 1
+    }
 }
 
 enum TapError: LocalizedError {
@@ -40,6 +56,14 @@ final class AppTap {
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
     private let gain: UnsafeMutablePointer<GainState>
+
+    let createdAt = Date()
+
+    /// Main thread only; see MixerModel.releaseBrokenTaps.
+    var silentPlayingSince: Date?
+
+    var hasSeenSignal: Bool { gain.pointee.sawSignal }
+    var hasRun: Bool { gain.pointee.didRun }
 
     init(processObjectIDs: Set<AudioObjectID>,
          outputDevice: AudioDeviceID,
@@ -76,6 +100,8 @@ final class AppTap {
         let description = CATapDescription(stereoMixdownOfProcesses: Array(processObjectIDs))
         description.uuid = UUID()
         description.muteBehavior = .mutedWhenTapped
+        // Owned by this process, so a crash can't leave an app muted with nobody replaying it.
+        description.isPrivate = true
         description.name = "MacMixer"
 
         var newTap = AudioObjectID(kAudioObjectUnknown)
@@ -175,6 +201,7 @@ enum GainRenderer {
     static func render(input: UnsafePointer<AudioBufferList>,
                        output: UnsafeMutablePointer<AudioBufferList>,
                        gain: UnsafeMutablePointer<GainState>) {
+        gain.pointee.didRun = true
         let outBuffers = UnsafeMutableAudioBufferListPointer(output)
 
         // Start from silence.
@@ -195,6 +222,13 @@ enum GainRenderer {
         let inFrames = Int(tap.mDataByteSize) / (MemoryLayout<Float32>.size * inChannels)
         guard inFrames > 0 else { return }
         let src = inData.assumingMemoryBound(to: Float32.self)
+
+        if !gain.pointee.sawSignal {
+            for i in 0..<(inFrames * inChannels) where src[i] != 0 {
+                gain.pointee.sawSignal = true
+                break
+            }
+        }
 
         let start = gain.pointee.current
         let target = gain.pointee.target

@@ -38,11 +38,15 @@ if [ -f Resources/AppIcon.icns ]; then
   /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP/Contents/Info.plist"
 fi
 
+# Under the hardened runtime, process taps deliver pure silence without the
+# audio-input entitlement, while still muting the tapped app at the source.
+ENTITLEMENTS="Resources/MacMixer.entitlements"
+
 echo "==> Signing ($SIGN_IDENTITY)"
 if [ "$SIGN_IDENTITY" = "-" ]; then
-  codesign --force --sign - "$APP"
+  codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP"
 else
-  codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$APP"
+  codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$APP"
 fi
 
 echo "==> Done: $APP"

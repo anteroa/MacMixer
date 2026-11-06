@@ -9,7 +9,13 @@ final class MixerModel: ObservableObject {
     @Published private(set) var apps: [AudioApp] = []
     @Published private(set) var volumes: [String: Float] = [:]
     @Published private(set) var muted: Set<String> = []
-    @Published private(set) var errors: [String: String] = [:]
+    @Published private(set) var errors: [String: String] = [:] {
+        didSet {
+            for (id, message) in errors where oldValue[id] != message {
+                Self.log("\(id): \(message)")
+            }
+        }
+    }
 
     @Published private(set) var outputName: String = "No output device"
     @Published private(set) var masterVolume: Float = 1
@@ -44,6 +50,7 @@ final class MixerModel: ObservableObject {
     private var timer: Timer?
     private var listeners: [PropertyListener] = []
     private var outputChangeWorkItem: DispatchWorkItem?
+    private var quitting = false
 
     private let defaults = UserDefaults.standard
     private let volumesKey = "appVolumes"
@@ -84,6 +91,20 @@ final class MixerModel: ObservableObject {
     deinit {
         timer?.invalidate()
         taps.removeAll()
+    }
+
+    private static let logURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Logs/MacMixer.log")
+
+    private static func log(_ message: String) {
+        guard let data = "\(Date()) \(message)\n".data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: logURL) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            try? data.write(to: logURL)
+        }
     }
 
     // MARK: - Per-app volume
@@ -157,6 +178,10 @@ final class MixerModel: ObservableObject {
 
         // (Re)build: new app, its set of processes changed, or the output device changed.
         taps.removeValue(forKey: id)
+        if AudioCapturePermission.isDenied {
+            errors[id] = "MacMixer needs the System Audio Recording permission. Allow it in Privacy & Security, then quit and reopen MacMixer."
+            return
+        }
         do {
             taps[id] = try AppTap(processObjectIDs: app.processObjectIDs,
                                   outputDevice: device,
@@ -218,6 +243,33 @@ final class MixerModel: ObservableObject {
             }
             if errors[app.id] != nil && taps[app.id] == nil { continue } // don't retry every second
             updateTap(for: app.id, allowRemoval: true)
+        }
+        releaseBrokenTaps()
+    }
+
+    /// A tap mutes its app at the source even when the replay side is broken, which
+    /// silences the app. Give up on taps whose device never started, and on taps that
+    /// only deliver silence for an app the user wants to hear.
+    private func releaseBrokenTaps() {
+        let now = Date()
+        for app in apps {
+            guard let tap = taps[app.id] else { continue }
+            // An idle app's tap may have nothing to drive it, so only judge apps that are playing.
+            if !tap.hasRun && app.isPlaying && now.timeIntervalSince(tap.createdAt) >= 2 {
+                taps.removeValue(forKey: app.id)
+                errors[app.id] = "Couldn't route \(app.name)'s audio through MacMixer (its audio device never started), so it's playing at normal volume."
+                continue
+            }
+            guard app.isPlaying, gain(for: app.id) > 0, !tap.hasSeenSignal else {
+                tap.silentPlayingSince = nil
+                continue
+            }
+            let since = tap.silentPlayingSince ?? now
+            tap.silentPlayingSince = since
+            if now.timeIntervalSince(since) >= 8 {
+                taps.removeValue(forKey: app.id)
+                errors[app.id] = "MacMixer was only receiving silence from \(app.name), so it's playing at normal volume."
+            }
         }
     }
 
@@ -308,6 +360,45 @@ final class MixerModel: ObservableObject {
         let newValue: UInt32 = masterMuted ? 0 : 1
         if CA.set(device, kAudioDevicePropertyMute, scope: outputScope, value: newValue) {
             masterMuted = newValue != 0
+        }
+    }
+
+    // MARK: - Quitting
+
+    /// Taps mute their apps at the source, so destroying them instantly un-mutes every
+    /// muted or turned-down app at its full volume. Duck the output device first,
+    /// release the taps while it's silent, then fade the output back in.
+    func prepareForQuit(then done: @escaping () -> Void) {
+        guard !quitting else { return }
+        quitting = true
+        timer?.invalidate()
+        timer = nil
+
+        readMasterVolume()
+        guard !taps.isEmpty, masterAdjustable, !masterMuted else {
+            taps.removeAll()
+            done()
+            return
+        }
+
+        let original = masterVolume
+        setMasterVolume(0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
+            taps.removeAll()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
+                fadeMasterVolume(to: original, over: 3, then: done)
+            }
+        }
+    }
+
+    private func fadeMasterVolume(to target: Float, over duration: TimeInterval, then done: @escaping () -> Void) {
+        let steps = 40
+        for i in 1...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration * Double(i) / Double(steps)) { [self] in
+                let t = Float(i) / Float(steps)
+                setMasterVolume(target * t * t)
+                if i == steps { done() }
+            }
         }
     }
 

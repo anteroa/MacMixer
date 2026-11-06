@@ -2,15 +2,23 @@ import SwiftUI
 
 @main
 struct MacMixerApp: App {
-    @StateObject private var model = MixerModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
         MenuBarExtra {
             MixerView()
-                .environmentObject(model)
+                .environmentObject(appDelegate.model)
         } label: {
-            Image(systemName: model.menuBarSymbol)
+            MenuBarIcon(model: appDelegate.model)
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+private struct MenuBarIcon: View {
+    @ObservedObject var model: MixerModel
+
+    var body: some View {
+        Image(systemName: model.menuBarSymbol)
     }
 }
